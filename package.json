@@ -1,0 +1,14 @@
+{
+  "name": "seaview",
+  "version": "1.0.0",
+  "description": "component to component transpiler",
+  "main": "src/index.ts",
+  "dependencies": {
+    "typescript": "^4.0.3"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "MIT"
+}
