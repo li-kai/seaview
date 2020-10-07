@@ -1,4 +1,15 @@
+#!/usr/bin/env node
 import ts from 'typescript';
+
+const DEFAULT_COMPILE_OPTIONS: Readonly<ts.CompilerOptions> = {
+  allowJs: true,
+  noEmitOnError: true,
+  esModuleInterop: true,
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.ES2020,
+  moduleResolution: ts.ModuleResolutionKind.NodeJs,
+  jsx: ts.JsxEmit.Preserve,
+};
 
 function nodeVisitor(ctx: ts.TransformationContext, sf: ts.SourceFile) {
   const visitor: ts.Visitor = (node) => {
@@ -12,8 +23,20 @@ export function transform(): ts.TransformerFactory<ts.SourceFile> {
   return (ctx) => (sf) => ts.visitNode(sf, nodeVisitor(ctx, sf));
 }
 
-function compile(fileNames: string[], options: ts.CompilerOptions): void {
-  let program = ts.createProgram(fileNames, options);
+export function transpile(input: string, options?: ts.CompilerOptions): ts.TranspileOutput {
+  const mergedOptions = {...options, ...DEFAULT_COMPILE_OPTIONS};
+  let emitResult = ts.transpileModule(input, {
+    compilerOptions: mergedOptions,
+    transformers: {
+      before: [transform()],
+    },
+  });
+  return emitResult;
+}
+
+function compile(fileNames: string[], options?: ts.CompilerOptions): void {
+  const mergedOptions = {...options, ...DEFAULT_COMPILE_OPTIONS};
+  let program = ts.createProgram(fileNames, mergedOptions);
   let emitResult = program.emit(
     undefined,
     (fileName, content) => {
@@ -70,12 +93,10 @@ function compile(fileNames: string[], options: ts.CompilerOptions): void {
   process.exit(exitCode);
 }
 
-compile(process.argv.slice(2), {
-  allowJs: true,
-  noEmitOnError: true,
-  esModuleInterop: true,
-  target: ts.ScriptTarget.ES2020,
-  module: ts.ModuleKind.ES2020,
-  moduleResolution: ts.ModuleResolutionKind.NodeJs,
-  jsx: ts.JsxEmit.Preserve,
-});
+// This ensures that this section of code only runs in cli mode
+// https://stackoverflow.com/a/6398335
+if (require.main === module) {
+  // TODO: pass compile options via flags
+  // TODO: help output
+  compile(process.argv.slice(2));
+}
