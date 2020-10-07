@@ -128,6 +128,11 @@ const HTMLElementTagNamesEnum: KeysEnum<HTMLElementTagNameMap> = {
 export const HTMLElementTagNames = Object.keys(
   HTMLElementTagNamesEnum,
 ) as Array<keyof HTMLElementTagNameMap>;
+export function isHTMLElementTag(
+  tag: string,
+): tag is keyof HTMLElementTagNameMap {
+  return tag in HTMLElementTagNamesEnum;
+}
 
 const SVGElementTagNamesEnum: KeysEnum<SVGElementTagNameMap> = {
   a: true,
@@ -191,3 +196,14 @@ const SVGElementTagNamesEnum: KeysEnum<SVGElementTagNameMap> = {
 export const SVGElementTagNames = Object.keys(SVGElementTagNamesEnum) as Array<
   keyof SVGElementTagNameMap
 >;
+export function isSVGElementTag(
+  tag: string,
+): tag is keyof SVGElementTagNameMap {
+  return tag in SVGElementTagNames;
+}
+
+export function isBrowserElementTag(
+  tag: string,
+): tag is keyof (HTMLElementTagNameMap & SVGElementTagNameMap) {
+  return tag in HTMLElementTagNamesEnum || tag in SVGElementTagNamesEnum;
+}

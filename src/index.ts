@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import ts from "typescript";
+import { isBrowserElementTag } from "./tagNames";
 
 const DEFAULT_COMPILE_OPTIONS: Readonly<ts.CompilerOptions> = {
   allowJs: true,
@@ -68,8 +69,24 @@ function nodeVisitor(
             isSingleQuote(node.moduleSpecifier, sf),
           ),
         );
+      } else if (
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        isBrowserElementTag(node.tagName.getText(sf))
+      ) {
+        const onChangeToOnInputVisitor: ts.Visitor = (node) => {
+          if (ts.isJsxAttribute(node) && node.name.text === "onChange") {
+            return ts.factory.updateJsxAttribute(
+              node,
+              ts.factory.createIdentifier("onInput"),
+              node.initializer,
+            );
+          }
+          return ts.visitEachChild(node, onChangeToOnInputVisitor, ctx);
+        };
+        return ts.visitEachChild(node, onChangeToOnInputVisitor, ctx);
+      } else {
+        return ts.visitEachChild(node, preactVisitor, ctx);
       }
-      return ts.visitEachChild(node, preactVisitor, ctx);
     };
 
     return preactVisitor;
