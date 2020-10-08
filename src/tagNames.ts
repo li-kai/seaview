@@ -199,7 +199,7 @@ export const SVGElementTagNames = Object.keys(SVGElementTagNamesEnum) as Array<
 export function isSVGElementTag(
   tag: string,
 ): tag is keyof SVGElementTagNameMap {
-  return tag in SVGElementTagNames;
+  return tag in SVGElementTagNamesEnum;
 }
 
 export function isBrowserElementTag(

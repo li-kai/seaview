@@ -84,4 +84,52 @@ describe("transpile", () => {
       "
     `);
   });
+
+  it("transforms react svg attributes to kebab-case in preact", () => {
+    const comp = `
+      import React from 'react';
+      export default function Component(props) {
+        return (
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+            <circle fill="none" strokeWidth="2" strokeLinejoin="round" cx="24" cy="24" r="20" />
+          </svg>
+        );
+      }
+    `.trim();
+
+    expect(transpile(comp, LibraryType.Preact).outputText)
+      .toMatchInlineSnapshot(`
+      "import { h } from 'preact';
+      export default function Component(props) {
+          return (<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 48 48\\">
+                  <circle fill=\\"none\\" stroke-width=\\"2\\" stroke-linejoin=\\"round\\" cx=\\"24\\" cy=\\"24\\" r=\\"20\\"/>
+                </svg>);
+      }
+      "
+    `);
+  });
+
+  it("does not transform non-svg react attributes to kebab-case in preact", () => {
+    const comp = `
+      import React from 'react';
+      export default function Component(props) {
+        return (
+          <Svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+            <Circle fill="none" strokeWidth="2" strokeLinejoin="round" cx="24" cy="24" r="20" />
+          </Svg>
+        );
+      }
+    `.trim();
+
+    expect(transpile(comp, LibraryType.Preact).outputText)
+      .toMatchInlineSnapshot(`
+      "import { h } from 'preact';
+      export default function Component(props) {
+          return (<Svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 48 48\\">
+                  <Circle fill=\\"none\\" strokeWidth=\\"2\\" strokeLinejoin=\\"round\\" cx=\\"24\\" cy=\\"24\\" r=\\"20\\"/>
+                </Svg>);
+      }
+      "
+    `);
+  });
 });

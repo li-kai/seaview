@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import ts from "typescript";
-import { isBrowserElementTag } from "./tagNames";
+import { kebabCase } from "./stringUtils";
+import { isHTMLElementTag, isSVGElementTag } from "./tagNames";
 
 const DEFAULT_COMPILE_OPTIONS: Readonly<ts.CompilerOptions> = {
   allowJs: true,
@@ -70,23 +71,40 @@ function nodeVisitor(
           ),
         );
       } else if (
-        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
-        isBrowserElementTag(node.tagName.getText(sf))
+        ts.isJsxSelfClosingElement(node) ||
+        ts.isJsxOpeningElement(node)
       ) {
-        const onChangeToOnInputVisitor: ts.Visitor = (node) => {
-          if (ts.isJsxAttribute(node) && node.name.text === "onChange") {
-            return ts.factory.updateJsxAttribute(
-              node,
-              ts.factory.createIdentifier("onInput"),
-              node.initializer,
-            );
+        const tagName = node.tagName.getText(sf);
+        const isHTMLTag = isHTMLElementTag(tagName);
+        const isSVGTag = isSVGElementTag(tagName);
+        // ignore non-native elements
+        if (!(isHTMLTag || isSVGTag)) {
+          return ts.visitEachChild(node, preactVisitor, ctx);
+        }
+
+        const jsxAttributeVisitor: ts.Visitor = (node) => {
+          if (ts.isJsxAttribute(node)) {
+            if (node.name.text === "onChange") {
+              return ts.factory.updateJsxAttribute(
+                node,
+                ts.factory.createIdentifier("onInput"),
+                node.initializer,
+              );
+            } else if (isSVGTag && tagName !== "svg") {
+              const svgAttr = kebabCase(node.name.text);
+              return ts.factory.updateJsxAttribute(
+                node,
+                ts.factory.createIdentifier(svgAttr),
+                node.initializer,
+              );
+            }
           }
-          return ts.visitEachChild(node, onChangeToOnInputVisitor, ctx);
+          return ts.visitEachChild(node, jsxAttributeVisitor, ctx);
         };
-        return ts.visitEachChild(node, onChangeToOnInputVisitor, ctx);
-      } else {
-        return ts.visitEachChild(node, preactVisitor, ctx);
+        return ts.visitEachChild(node, jsxAttributeVisitor, ctx);
       }
+
+      return ts.visitEachChild(node, preactVisitor, ctx);
     };
 
     return preactVisitor;
