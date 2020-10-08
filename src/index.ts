@@ -3,19 +3,42 @@ import ts from "typescript";
 import { kebabCase } from "./stringUtils";
 import { isHTMLElementTag, isSVGElementTag } from "./tagNames";
 
-const DEFAULT_COMPILE_OPTIONS: Readonly<ts.CompilerOptions> = {
-  allowJs: true,
-  noEmitOnError: true,
-  esModuleInterop: true,
-  target: ts.ScriptTarget.ES2020,
-  module: ts.ModuleKind.ES2020,
-  moduleResolution: ts.ModuleResolutionKind.NodeJs,
-  jsx: ts.JsxEmit.Preserve,
-};
+function getJsxFactory(libType: LibraryType) {
+  switch (libType) {
+    case LibraryType.Vue2:
+      return "createElement";
+    case LibraryType.Vue3:
+      return "h";
+    default:
+      return undefined;
+  }
+}
+
+function getCompileOptions(
+  libType: LibraryType,
+  options?: ts.CompilerOptions,
+): Readonly<ts.CompilerOptions> {
+  return {
+    ...options,
+    allowJs: true,
+    noEmitOnError: true,
+    esModuleInterop: true,
+    target: ts.ScriptTarget.ES2020,
+    module: ts.ModuleKind.ES2020,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    jsx:
+      libType === LibraryType.Vue2 || libType === LibraryType.Vue3
+        ? ts.JsxEmit.React
+        : ts.JsxEmit.Preserve,
+    jsxFactory: getJsxFactory(libType),
+  };
+}
 
 export enum LibraryType {
   React = "react",
   Preact = "preact",
+  Vue2 = "vue2",
+  Vue3 = "vue3",
 }
 
 const REACT_REGEX = /['"]react['"]/;
@@ -38,6 +61,25 @@ function isReactImport(
   );
 }
 
+/**
+ * Check if this node is a react component
+ *
+ * @param {ts.Node} node node
+ * @returns {boolean} true if it is, false otherwise
+ */
+function isReactComponent(node: ts.Node): node is ts.FunctionDeclaration {
+  // todo: mark as react component if returning jsx elements
+  // todo: check for function expressions as well
+  if (ts.isFunctionDeclaration(node)) {
+    // identify functions with UpperCamelCase names as react components
+    const fnName = node.name?.text ?? "";
+    if (fnName[0] === fnName[0].toUpperCase()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isSingleQuote(node: ts.Node, sf: ts.SourceFile): boolean {
   return (
     ts.isStringLiteralLike(node) && SINGLE_QUOTE_REGEX.test(node.getText(sf))
@@ -49,13 +91,14 @@ function nodeVisitor(
   sf: ts.SourceFile,
   libType: LibraryType,
 ) {
+  const hImportSpecifier = ts.factory.createImportSpecifier(
+    undefined,
+    ts.factory.createIdentifier("h"),
+  );
+
   if (libType === LibraryType.Preact) {
     const preactVisitor: ts.Visitor = (node) => {
       if (isReactImport(node, sf)) {
-        const hImportSpecifier = ts.factory.createImportSpecifier(
-          undefined,
-          ts.factory.createIdentifier("h"),
-        );
         return ts.factory.updateImportDeclaration(
           node,
           undefined,
@@ -108,6 +151,152 @@ function nodeVisitor(
     };
 
     return preactVisitor;
+  } else if (libType === LibraryType.Vue2) {
+    const vueVisitor: ts.Visitor = (node) => {
+      if (isReactImport(node, sf)) {
+        return ts.factory.updateImportDeclaration(
+          node,
+          undefined,
+          undefined,
+          ts.factory.createImportClause(
+            false,
+            ts.factory.createIdentifier("Vue"),
+            undefined,
+          ),
+          ts.factory.createStringLiteral(
+            "vue",
+            isSingleQuote(node.moduleSpecifier, sf),
+          ),
+        );
+      } else if (isReactComponent(node)) {
+        const componentArgs: ts.Expression[] = [];
+        const componentName = node.name?.getText(sf);
+        if (componentName) {
+          componentArgs.push(
+            ts.factory.createStringLiteral(kebabCase(componentName)),
+          );
+        }
+
+        const vueRenderMethod = ts.factory.createMethodDeclaration(
+          undefined,
+          undefined,
+          undefined,
+          "render",
+          undefined,
+          undefined,
+          [
+            ts.factory.createParameterDeclaration(
+              undefined,
+              undefined,
+              undefined,
+              getJsxFactory(libType)!,
+            ),
+          ],
+          ts.factory.createTypeReferenceNode("VNode"),
+          node.body,
+        );
+        componentArgs.push(
+          ts.factory.createObjectLiteralExpression([vueRenderMethod]),
+        );
+
+        const vueComponentExpression = ts.factory.createCallExpression(
+          ts.factory.createPropertyAccessExpression(
+            ts.factory.createIdentifier("Vue"),
+            "component",
+          ),
+          undefined,
+          componentArgs,
+        );
+
+        const isExportDefault = node.modifiers?.some(
+          (md) => md.kind === ts.SyntaxKind.DefaultKeyword,
+        );
+        if (isExportDefault) {
+          return ts.factory.createExportAssignment(
+            undefined,
+            undefined,
+            undefined,
+            vueComponentExpression,
+          );
+        }
+        return vueComponentExpression;
+      }
+
+      return ts.visitEachChild(node, vueVisitor, ctx);
+    };
+
+    return vueVisitor;
+  } else if (libType === LibraryType.Vue3) {
+    const vueVisitor: ts.Visitor = (node) => {
+      if (isReactImport(node, sf)) {
+        return ts.factory.updateImportDeclaration(
+          node,
+          undefined,
+          undefined,
+          ts.factory.createImportClause(
+            false,
+            ts.factory.createIdentifier("Vue"),
+            ts.factory.createNamedImports([
+              hImportSpecifier,
+              ts.factory.createImportSpecifier(
+                undefined,
+                ts.factory.createIdentifier("defineComponent"),
+              ),
+            ]),
+          ),
+          ts.factory.createStringLiteral(
+            "vue",
+            isSingleQuote(node.moduleSpecifier, sf),
+          ),
+        );
+      } else if (isReactComponent(node)) {
+        const vueBody = ts.factory.createBlock([
+          ts.factory.createReturnStatement(
+            ts.factory.createArrowFunction(
+              undefined,
+              node.typeParameters,
+              node.parameters,
+              node.type,
+              undefined,
+              node.body!,
+            ),
+          ),
+        ]);
+
+        const vueComponentExpression = ts.factory.createCallExpression(
+          ts.factory.createIdentifier("defineComponent"),
+          undefined,
+          [
+            ts.factory.createFunctionExpression(
+              undefined,
+              undefined,
+              node.name,
+              undefined,
+              undefined,
+              undefined,
+              vueBody,
+            ),
+          ],
+        );
+
+        const isExportDefault = node.modifiers?.some(
+          (md) => md.kind === ts.SyntaxKind.DefaultKeyword,
+        );
+        if (isExportDefault) {
+          return ts.factory.createExportAssignment(
+            undefined,
+            undefined,
+            undefined,
+            vueComponentExpression,
+          );
+        }
+        return vueComponentExpression;
+      }
+
+      return ts.visitEachChild(node, vueVisitor, ctx);
+    };
+
+    return vueVisitor;
   }
 
   const visitor: ts.Visitor = (node) => {
@@ -128,7 +317,7 @@ export function transpile(
   libType: LibraryType,
   compilerOptions?: ts.CompilerOptions,
 ): ts.TranspileOutput {
-  const mergedOptions = { ...compilerOptions, ...DEFAULT_COMPILE_OPTIONS };
+  const mergedOptions = getCompileOptions(libType, compilerOptions);
   let emitResult = ts.transpileModule(input, {
     compilerOptions: mergedOptions,
     transformers: {
@@ -143,7 +332,7 @@ function compile(
   libType: LibraryType,
   compilerOptions?: ts.CompilerOptions,
 ): void {
-  const mergedOptions = { ...compilerOptions, ...DEFAULT_COMPILE_OPTIONS };
+  const mergedOptions = getCompileOptions(libType, compilerOptions);
   let program = ts.createProgram(fileNames, mergedOptions);
   let emitResult = program.emit(
     undefined,
